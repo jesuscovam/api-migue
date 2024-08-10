@@ -1,4 +1,4 @@
-import { stripe } from '$lib/server/stripe/config.js';
+import { StripeProxy } from '$lib/server/index.js';
 import { error, json } from '@sveltejs/kit';
 
 function convertAmountToCents(amount: number) {
@@ -10,11 +10,11 @@ const SUCESS_URL = 'http://www.bravelifenow.com/completed';
 export const POST = async ({ request }) => {
 	const body = await request.json();
 
-	if (!body.amount) {
+	if (!body.amount || !body.donationType) {
 		error(400, `missing params: ${body}`);
 	}
 
-	let { amount } = body;
+	let { amount, donationType } = body;
 
 	if (typeof amount !== 'number') {
 		amount = parseFloat(amount);
@@ -23,28 +23,19 @@ export const POST = async ({ request }) => {
 	const stripeAmount = convertAmountToCents(amount);
 
 	try {
-		const subs = await stripe.checkout.sessions.create({
-			mode: 'subscription',
-			success_url: SUCESS_URL,
-			line_items: [
-				{
-					quantity: 1,
-					price_data: {
-						currency: 'usd',
-						unit_amount: stripeAmount,
-						recurring: {
-							interval: 'month'
-						},
-						product_data: {
-							name: 'Donation'
-						}
-					}
-				}
-			]
-		});
+		let url: string | null = '';
 
-		console.log({ subs });
-		return json({ url: subs.url });
+		if (donationType === 'monthly') {
+			url = await StripeProxy.createSubscription(stripeAmount, SUCESS_URL);
+		} else {
+			url = await StripeProxy.createOnePayment(stripeAmount, SUCESS_URL);
+		}
+
+		if (!url) {
+			error(500, 'Error creating url');
+		}
+
+		return json({ url });
 	} catch (err) {
 		console.error('Error creating subs link', { err });
 		error(500, 'Error creating subs link');
